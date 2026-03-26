@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { registrarUsuario, loginUsuario } = require('../controllers/usuarioController');
+const { registrarUsuario, loginUsuario, obtenerPerfilBasico } = require('../controllers/usuarioController');
 const { obtenerHistorialUnificado } = require('../controllers/historialController');
 const verificarToken  = require('../middleware/authMiddleware');
 const reglasValidacionRegistro = require('../middleware/validarRegistro');
@@ -14,5 +14,8 @@ router.post('/login', loginUsuario);
 
 // Ruta: GET http://localhost:3000/api/usuarios/:idUsuario/historial
 router.get('/:idUsuario/historial', verificarToken, obtenerHistorialUnificado);
+
+// Ruta: GET http://localhost:3000/api/usuarios/:idUsuario/perfil
+router.get('/:idUsuario/perfil', verificarToken, obtenerPerfilBasico);
 
 module.exports = router;

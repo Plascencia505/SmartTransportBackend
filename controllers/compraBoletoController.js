@@ -7,16 +7,11 @@ const comprarBoletos = async (req, res) => {
     try {
         const { idUsuario, cantidadBoletos, costoTotal } = req.body;
 
-        // Validación básica
-        if (!cantidadBoletos || cantidadBoletos <= 0) {
-            return res.status(400).json({ error: 'Debes comprar al menos un boleto' });
-        }
-
         if (!Number.isInteger(cantidadBoletos)) {
             return res.status(400).json({ error: 'No se pueden comprar fracciones de boleto.' });
         }
-        if (cantidadBoletos > LIMITE_MAX_BOLETOS) {
-            return res.status(400).json({ error: `Por seguridad, hay un máximo de ${LIMITE_MAX_BOLETOS} boletos por operación.` });
+        if (cantidadBoletos <= 0 || cantidadBoletos > LIMITE_MAX_BOLETOS) {
+            return res.status(400).json({ error: `Solo puedes comprar entre 1 y ${LIMITE_MAX_BOLETOS} boletos a la vez.` });
         }
 
         const usuario = await Usuario.findById(idUsuario);

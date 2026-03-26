@@ -109,9 +109,31 @@ const loginUsuario = async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: 'Error en el servidor', detalle: error.message });
     }
+
+};
+
+// Función para obtener el perfil básico del usuario (saldo y boletos disponibles)
+const obtenerPerfilBasico = async (req, res) => {
+    try {
+        const { idUsuario } = req.params;
+
+        // Buscamos al usuario, excluyendo la contraseña y datos pesados. .lean() lo hace volar.
+        const usuario = await Usuario.findById(idUsuario)
+            .select('saldo boletosDisponibles')
+            .lean();
+
+        if (!usuario) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        res.status(200).json(usuario);
+    } catch (error) {
+        res.status(500).json({ error: 'Error al obtener perfil' });
+    }
 };
 
 module.exports = {
     registrarUsuario,
-    loginUsuario
+    loginUsuario,
+    obtenerPerfilBasico
 };
