@@ -47,7 +47,7 @@ const obtenerHistorialUnificado = async (req, res) => {
             historialUnificado.push({
                 idElemento: v._id,
                 tipo: 'viaje',
-                titulo: 'Viaje en Transporte',
+                titulo: 'Abordaje en transporte',
                 subtitulo: v.estatusSincronizacion === 'nube_sincronizado' ? 'Sincronizado' : 'Pendiente',
                 // El viaje no resta dinero directo, resta un boleto. Lo mandamos como 0 y usamos un campo extra.
                 monto: 0,

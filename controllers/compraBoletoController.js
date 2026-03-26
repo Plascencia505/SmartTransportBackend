@@ -1,6 +1,8 @@
 const Usuario = require('../models/Usuario');
 const CompraBoleto = require('../models/CompraBoleto');
 
+const LIMITE_MAX_BOLETOS = 50; // Límite máximo de boletos por compra
+
 const comprarBoletos = async (req, res) => {
     try {
         const { idUsuario, cantidadBoletos, costoTotal } = req.body;
@@ -8,6 +10,13 @@ const comprarBoletos = async (req, res) => {
         // Validación básica
         if (!cantidadBoletos || cantidadBoletos <= 0) {
             return res.status(400).json({ error: 'Debes comprar al menos un boleto' });
+        }
+
+        if (!Number.isInteger(cantidadBoletos)) {
+            return res.status(400).json({ error: 'No se pueden comprar fracciones de boleto.' });
+        }
+        if (cantidadBoletos > LIMITE_MAX_BOLETOS) {
+            return res.status(400).json({ error: `Por seguridad, hay un máximo de ${LIMITE_MAX_BOLETOS} boletos por operación.` });
         }
 
         const usuario = await Usuario.findById(idUsuario);

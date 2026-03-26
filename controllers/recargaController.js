@@ -1,6 +1,8 @@
 const Usuario = require('../models/Usuario');
 const Recarga = require('../models/Recarga');
 
+const LIMITE_MAX_RECARGA = 1000; // Límite máximo de recarga por transacción
+
 const recargarSaldo = async (req, res) => {
     try {
         const { idUsuario, monto, metodoPago } = req.body;
@@ -8,6 +10,14 @@ const recargarSaldo = async (req, res) => {
         // Validación básica
         if (!monto || monto <= 0) {
             return res.status(400).json({ error: 'El monto a recargar debe ser mayor a 0' });
+        }
+
+        if (monto > LIMITE_MAX_RECARGA) {
+            return res.status(400).json({ error: `Por seguridad, la recarga máxima es de $${LIMITE_MAX_RECARGA}.` });
+        }
+        // Regex: Asegura que si hay punto decimal, solo tenga 1 o 2 dígitos después de él
+        if (!/^\d+(\.\d{1,2})?$/.test(monto.toString())) {
+            return res.status(400).json({ error: 'El monto solo puede tener hasta dos decimales (ej. 5.50).' });
         }
 
         const usuario = await Usuario.findById(idUsuario);
