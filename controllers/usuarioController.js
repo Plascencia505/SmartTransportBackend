@@ -112,7 +112,7 @@ const loginUsuario = async (req, res) => {
 
 };
 
-// Función para obtener el perfil básico del usuario (saldo y boletos disponibles)
+// Función para obtener el perfil básico del usuario al login
 const obtenerPerfilBasico = async (req, res) => {
     try {
         const { idUsuario } = req.params;
