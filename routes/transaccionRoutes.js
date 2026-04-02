@@ -5,7 +5,7 @@ const router = express.Router();
 const verificarToken = require('../middleware/authMiddleware');
 
 //Importamos las funciones desde sus 3 controladores independientes
-const { registrarViaje } = require('../controllers/viajeController');
+const { registrarViaje, sincronizarLote} = require('../controllers/viajeController');
 const { recargarSaldo } = require('../controllers/recargaController');
 const { comprarBoletos } = require('../controllers/compraBoletoController');
 
@@ -14,5 +14,6 @@ const { comprarBoletos } = require('../controllers/compraBoletoController');
 router.post('/utilizar', verificarToken, registrarViaje);
 router.post('/recargar', verificarToken, recargarSaldo);
 router.post('/comprar', verificarToken, comprarBoletos);
+router.post('/sincronizar-lote', verificarToken, sincronizarLote);
 
 module.exports = router;

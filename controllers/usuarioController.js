@@ -119,7 +119,7 @@ const obtenerPerfilBasico = async (req, res) => {
 
         // Buscamos al usuario, excluyendo la contraseña y datos pesados. .lean() lo hace volar.
         const usuario = await Usuario.findById(idUsuario)
-            .select('saldo boletosDisponibles')
+            .select('saldo boletosDisponibles curp telefono correo')
             .lean();
 
         if (!usuario) {
