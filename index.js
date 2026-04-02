@@ -38,6 +38,7 @@ app.use(express.json()); // Permite leer los JSON que mandes en el body
 // Rutas al resto de módulos
 app.use('/api/usuarios', require('./routes/usuarioRoutes'));
 app.use('/api/transacciones', require('./routes/transaccionRoutes'));
+app.use('/api/sincronizar-lote', require('./routes/transaccionRoutes'));
 
 // Ruta de prueba para verificar que el servidor vive
 app.get('/', (req, res) => {

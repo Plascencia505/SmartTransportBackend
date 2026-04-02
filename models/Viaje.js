@@ -11,7 +11,11 @@ const viajeSchema = new mongoose.Schema({
         ref: 'Usuario',
         required: true
     },
-    // Preparando el terreno para el Offline-First
+    idBoleto: {
+        type: String,
+        unique: true,
+        sparse: true
+    }, // Guarda la huella única del viaje
     estatusSincronizacion: {
         type: String,
         enum: ['local_pendiente', 'nube_sincronizado'],

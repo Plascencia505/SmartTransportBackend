@@ -1,55 +1,55 @@
+const crypto = require('crypto');
 const Usuario = require('../models/Usuario');
 const Viaje = require('../models/Viaje');
-const { authenticator } = require('otplib');
 
-// Registro de viaje (cobro en tiempo real)
+// Función para validar la firma HMAC del boleto
+const validarFirma = (idBoleto, firmaEnviada, secret) => {
+    const hmac = crypto.createHmac('sha256', secret);
+    hmac.update(idBoleto);
+    const firmaCalculada = hmac.digest('hex');
+    return firmaCalculada === firmaEnviada;
+};
+
+// Viajes en tiempo real con validación antifraude
 const registrarViaje = async (req, res) => {
     try {
-        const { idPasajero, idOperador, totp } = req.body;
+        const { idPasajero, idOperador, idBoleto, firma } = req.body;
         console.log(`Intentando cobrar viaje al pasajero ${idPasajero}`);
 
         const pasajero = await Usuario.findById(idPasajero);
-        if (!pasajero) {
-            return res.status(404).json({ error: 'Pasajero no encontrado' });
-        }
+        if (!pasajero) return res.status(404).json({ error: 'Pasajero no encontrado' });
+        if (!pasajero.totpSecret) return res.status(400).json({ error: 'Usuario sin secreto configurado' });
 
-        // TOTP en tiempo real
-        if (!totp) {
-            return res.status(400).json({ error: 'El QR no contiene un código de seguridad.' });
-        }
-        if (!pasajero.totpSecret) {
-            return res.status(400).json({ error: 'El pasajero no tiene semilla de seguridad configurada.' });
-        }
-
-        // Configuramos la ventana de tolerancia de lag (1 ciclo anterior, el actual, y 1 futuro)
-        authenticator.options = { window: 1 };
-        const esValido = authenticator.verify({
-            token: totp,
-            secret: pasajero.totpSecret
-        });
-
+        // Validación matemática de la firma HMAC del boleto
+        const esValido = validarFirma(idBoleto, firma, pasajero.totpSecret);
         if (!esValido) {
-            return res.status(401).json({ error: 'Código QR expirado o clonado.' });
+            return res.status(401).json({ error: 'Firma criptográfica inválida. Boleto corrupto.' });
         }
 
-        // Verificación del adeudo de boletos, no más de 4 viajes en negativo permitidos
+        // Antifraude: Verificar que el boleto no haya sido utilizado antes (clonado)
+        const viajePrevio = await Viaje.findOne({ idBoleto: idBoleto });
+        if (viajePrevio) {
+            return res.status(401).json({ error: 'Fraude: Este boleto ya fue utilizado anteriormente.' });
+        }
+
+        // Validación de saldo (con un margen de -4 boletos para permitir viajes en adeudo)
         if (pasajero.boletosDisponibles <= -4) {
             return res.status(400).json({ error: 'Pasaje rechazado: Límite de adeudo superado (-4 boletos).' });
         }
 
-        // Restamos un boleto al pasajero (puede quedar en negativo hasta -4)
+        // EJECUCIÓN
         pasajero.boletosDisponibles -= 1;
         await pasajero.save();
+        console.log(`Viaje registrado para pasajero ${idPasajero}. Boletos restantes: ${pasajero.boletosDisponibles}`);
 
-        // Registramos el viaje en la base de datos
         const nuevoViaje = new Viaje({
-            idPasajero: idPasajero,
-            idOperador: idOperador,
+            idPasajero,
+            idOperador,
+            idBoleto, // Guardamos el UUID para quemarlo
             estatusSincronizacion: 'nube_sincronizado'
         });
         await nuevoViaje.save();
 
-        // Socket: Avisar al usuario en tiempo real (si tiene la app abierta) que su boleto fue cobrado y cuántos boletos le quedan
         const io = req.app.get('io');
         if (io) {
             io.to(idPasajero.toString()).emit('boleto_cobrado', {
@@ -66,71 +66,60 @@ const registrarViaje = async (req, res) => {
 
     } catch (error) {
         console.error('Error al registrar viaje:', error);
-        return res.status(500).json({ error: 'Error interno al procesar el viaje', detalle: error.message });
+        return res.status(500).json({ error: 'Error interno' });
     }
 };
 
-// Offline a Online (Sincronización de viajes diferidos)
+// Procesamiento de viajes offline diferidos en lote con hmac y validaciones antifraude adicionales
 const sincronizarLote = async (req, res) => {
     try {
         const { idOperador, viajes } = req.body;
-
-        if (!viajes || !Array.isArray(viajes)) {
-            return res.status(400).json({ error: 'Formato de viajes incorrecto' });
-        }
+        if (!viajes || !Array.isArray(viajes)) return res.status(400).json({ error: 'Formato incorrecto' });
 
         console.log(`[SYNC] Procesando lote de ${viajes.length} viajes diferidos del operador ${idOperador}`);
 
         const io = req.app.get('io');
-        const resultados = []; // Para avisarle al chofer cuáles borrar de su SQLite
+        const resultados = [];
 
-        // Procesamos uno por uno
         for (const viajeOffline of viajes) {
-            // id es el de SQLite, no confundir con el _id de Mongo.
-            const { id, idPasajero, totpScaneado, fechaHoraEscaneo } = viajeOffline;
+            const { id, idPasajero, idBoleto, firma, fechaHoraEscaneo } = viajeOffline;
 
             try {
                 const pasajero = await Usuario.findById(idPasajero);
-
                 if (!pasajero || !pasajero.totpSecret) {
                     resultados.push({ idSQLite: id, status: 'rechazado', motivo: 'Pasajero inexistente' });
-                    continue; // Saltamos al siguiente viaje
-                }
-
-                // clone de autenticador para no afectar el global
-                const authOffline = authenticator.clone();
-
-                // Le decimos a la librería que la "hora actual" es la hora en la que se escaneó
-                authOffline.options = {
-                    epoch: new Date(fechaHoraEscaneo).getTime(),
-                    window: 1
-                };
-
-                const esValido = authOffline.verify({
-                    token: totpScaneado,
-                    secret: pasajero.totpSecret
-                });
-
-                if (!esValido) {
-                    resultados.push({ idSQLite: id, status: 'rechazado', motivo: 'Fraude detectado: TOTP inválido para esa hora' });
                     continue;
                 }
 
-                // Validación de adeudo, no más de 4 viajes en negativo permitidos
+                // 1. VALIDACIÓN MATEMÁTICA
+                const esValido = validarFirma(idBoleto, firma, pasajero.totpSecret);
+                if (!esValido) {
+                    resultados.push({ idSQLite: id, status: 'rechazado', motivo: 'Firma inválida' });
+                    continue;
+                }
+
+                // 2. VALIDACIÓN ANTIFRAUDE EN LOTE
+                const viajePrevio = await Viaje.findOne({ idBoleto: idBoleto });
+                if (viajePrevio) {
+                    resultados.push({ idSQLite: id, status: 'rechazado', motivo: 'Boleto reciclado (clonado)' });
+                    continue;
+                }
+
                 if (pasajero.boletosDisponibles <= -4) {
                     resultados.push({ idSQLite: id, status: 'rechazado', motivo: 'Límite de adeudo máximo' });
-                    // Opcional: Aquí podrías ejecutar pasajero.cuentaBloqueada = true
                     continue;
                 }
 
-                // Cobrar el viaje restando un boleto (puede quedar en negativo hasta -4)
-                pasajero.boletosDisponibles -= 1;
-                await pasajero.save();
+                const pasajeroActualizado = await Usuario.findByIdAndUpdate(
+                    idPasajero,
+                    { $inc: { boletosDisponibles: -1 } },
+                    { new: true }
+                );
 
-                // Registramos el viaje en la base de datos con la fecha real del escaneo, no la de sincronización
                 const nuevoViaje = new Viaje({
-                    idPasajero: idPasajero,
-                    idOperador: idOperador,
+                    idPasajero,
+                    idOperador,
+                    idBoleto, // Lo quemamos retroactivamente
                     estatusSincronizacion: 'nube_sincronizado',
                     fecha: fechaHoraEscaneo
                 });
@@ -138,35 +127,25 @@ const sincronizarLote = async (req, res) => {
 
                 resultados.push({ idSQLite: id, status: 'exito' });
 
-                // Avisar por si tiene la app abierta que su boleto fue cobrado y cuántos boletos le quedan
                 if (io) {
                     io.to(idPasajero.toString()).emit('boleto_cobrado', {
                         idPasajero: idPasajero,
-                        boletosRestantes: pasajero.boletosDisponibles,
+                        boletosRestantes: pasajeroActualizado.boletosDisponibles,
                         mensaje: 'Viaje pendiente procesado'
                     });
                 }
 
             } catch (errItem) {
-                console.error(`Error procesando viaje SQLite ${id}:`, errItem);
-                // Si el servidor falla internamente, marcamos 'error' para que el chofer lo intente de nuevo más tarde
+                console.error(`[SYNC] Error en viaje SQLite ID ${id}:`, errItem);
                 resultados.push({ idSQLite: id, status: 'error' });
             }
         }
-
-        // Le regresamos la lista de resultados al teléfono del chofer
-        return res.status(200).json({
-            mensaje: 'Sincronización completada',
-            resultados: resultados
-        });
+        console.log(`[SYNC] Lote finalizado.`);
+        return res.status(200).json({ mensaje: 'Sincronización completada', resultados: resultados });
 
     } catch (error) {
-        console.error('Error masivo en sincronizarLote:', error);
         return res.status(500).json({ error: 'Error interno de sincronización' });
     }
 };
 
-module.exports = {
-    registrarViaje,
-    sincronizarLote
-};
+module.exports = { registrarViaje, sincronizarLote };
